@@ -1,9 +1,14 @@
-
 <?php
+
+session_start();
 
 require_once __DIR__ . '/../backend/config/db.php';
 
 $pageTitle = 'Property Details | StayNest';
+
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
 
 $propertyId = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
 
@@ -27,7 +32,7 @@ if (!$property) {
     exit('Property not found.');
 }
 
-// Fetch rooms for this property
+// Fetch rooms
 $roomStmt = $pdo->prepare("
     SELECT *
     FROM rooms
@@ -48,9 +53,14 @@ require_once __DIR__ . '/../backend/includes/header.php';
             ← Back to listings
         </a>
 
+        <?php if (isset($_GET['booking_error'])): ?>
+            <div class="alert alert-danger mt-3">
+                <?= htmlspecialchars($_GET['booking_error']) ?>
+            </div>
+        <?php endif; ?>
+
         <div class="row g-4 mt-2">
 
-            <!-- Property image -->
             <div class="col-lg-7">
 
                 <?php if (!empty($property['image_url'])): ?>
@@ -65,7 +75,6 @@ require_once __DIR__ . '/../backend/includes/header.php';
 
             </div>
 
-            <!-- Property information -->
             <div class="col-lg-5">
 
                 <span class="property-tag">
@@ -107,20 +116,10 @@ require_once __DIR__ . '/../backend/includes/header.php';
 
                 </div>
 
-                <a href="/login.php"
-                   class="btn btn-primary btn-lg w-100 mt-4">
-                    Book This Accommodation
-                </a>
-
-                <p class="small text-muted mt-2">
-                    Login will be required before booking.
-                </p>
-
             </div>
 
         </div>
 
-        <!-- Description -->
         <section class="mt-5">
             <h3>About this accommodation</h3>
 
@@ -129,7 +128,6 @@ require_once __DIR__ . '/../backend/includes/header.php';
             </p>
         </section>
 
-        <!-- Rooms -->
         <section class="mt-5">
 
             <h3>Room Information</h3>
@@ -146,9 +144,18 @@ require_once __DIR__ . '/../backend/includes/header.php';
 
                     <?php foreach ($rooms as $room): ?>
 
+                        <?php
+                        $availableBeds = max(
+                            0,
+                            (int)$room['capacity'] - (int)$room['occupied']
+                        );
+
+                        $isAvailable = $room['availability'] && $availableBeds > 0;
+                        ?>
+
                         <div class="col-md-6 col-lg-4">
 
-                            <div class="room-card p-4">
+                            <div class="room-card p-4 h-100">
 
                                 <h5>
                                     <?= htmlspecialchars($room['room_type']) ?>
@@ -166,7 +173,7 @@ require_once __DIR__ . '/../backend/includes/header.php';
 
                                 <p>
                                     <strong>Available beds:</strong>
-                                    <?= max(0, (int)$room['capacity'] - (int)$room['occupied']) ?>
+                                    <?= $availableBeds ?>
                                 </p>
 
                                 <h5 class="price">
@@ -174,10 +181,81 @@ require_once __DIR__ . '/../backend/includes/header.php';
                                     <small>/ bed per month</small>
                                 </h5>
 
-                                <p class="mb-0">
+                                <p>
                                     <strong>Status:</strong>
-                                    <?= $room['availability'] ? 'Available' : 'Unavailable' ?>
+                                    <?= $isAvailable ? 'Available' : 'Unavailable' ?>
                                 </p>
+
+                                <?php if ($isAvailable): ?>
+
+                                    <hr>
+
+                                    <h6 class="fw-bold">Request a Booking</h6>
+
+                                    <form action="/booking_process.php" method="POST">
+
+                                        <input type="hidden"
+                                               name="csrf_token"
+                                               value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+
+                                        <input type="hidden"
+                                               name="property_id"
+                                               value="<?= (int)$property['property_id'] ?>">
+
+                                        <input type="hidden"
+                                               name="room_id"
+                                               value="<?= (int)$room['room_id'] ?>">
+
+                                        <div class="mb-3">
+                                            <label class="form-label">
+                                                Check-in
+                                            </label>
+
+                                            <input type="date"
+                                                   name="check_in"
+                                                   class="form-control"
+                                                   min="<?= date('Y-m-d') ?>"
+                                                   required>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label class="form-label">
+                                                Check-out
+                                            </label>
+
+                                            <input type="date"
+                                                   name="check_out"
+                                                   class="form-control"
+                                                   min="<?= date('Y-m-d') ?>"
+                                                   required>
+                                        </div>
+
+                                        <?php if (isset($_SESSION['user_id'])): ?>
+
+                                            <button type="submit"
+                                                    class="btn btn-primary w-100">
+                                                Request Booking
+                                            </button>
+
+                                        <?php else: ?>
+
+                                            <a href="/login.php"
+                                               class="btn btn-primary w-100">
+                                                Login to Book
+                                            </a>
+
+                                        <?php endif; ?>
+
+                                    </form>
+
+                                <?php else: ?>
+
+                                    <button class="btn btn-secondary w-100"
+                                            disabled>
+                                        Room Unavailable
+                                    </button>
+
+                                <?php endif; ?>
 
                             </div>
 

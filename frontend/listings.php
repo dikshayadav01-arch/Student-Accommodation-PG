@@ -1,5 +1,6 @@
-
 <?php
+
+session_start();
 
 require_once __DIR__ . '/../backend/config/db.php';
 
@@ -7,6 +8,31 @@ $pageTitle = 'Explore Accommodation | StayNest';
 
 $city = trim($_GET['city'] ?? '');
 $budget = trim($_GET['budget'] ?? '');
+
+$isLoggedIn = isset($_SESSION['user_id']);
+
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+$favoritedIds = [];
+
+if ($isLoggedIn) {
+    $favoriteStmt = $pdo->prepare("
+        SELECT property_id
+        FROM favorites
+        WHERE student_id = :student_id
+    ");
+
+    $favoriteStmt->execute([
+        'student_id' => $_SESSION['user_id']
+    ]);
+
+    $favoritedIds = array_map(
+        'intval',
+        $favoriteStmt->fetchAll(PDO::FETCH_COLUMN)
+    );
+}
 
 $sql = "SELECT property_id, property_name, description,
                property_type, address, city, rent,
@@ -120,6 +146,14 @@ require_once __DIR__ . '/../backend/includes/header.php';
 
                 <?php foreach ($properties as $property): ?>
 
+                    <?php
+                    $isFavorite = in_array(
+                        (int)$property['property_id'],
+                        $favoritedIds,
+                        true
+                    );
+                    ?>
+
                     <div class="col-md-6 col-lg-4">
                         <div class="property-card h-100">
 
@@ -168,6 +202,26 @@ require_once __DIR__ . '/../backend/includes/header.php';
                                     <small>/ month</small>
                                 </h5>
 
+                                <?php if ($isLoggedIn): ?>
+
+                                    <button type="button"
+                                            class="btn <?= $isFavorite ? 'btn-danger' : 'btn-outline-danger' ?> w-100 mt-2 favorite-btn"
+                                            data-property-id="<?= (int)$property['property_id'] ?>"
+                                            data-favorite="<?= $isFavorite ? '1' : '0' ?>">
+
+                                        <?= $isFavorite ? '♥ Remove Favorite' : '♡ Add to Favorites' ?>
+
+                                    </button>
+
+                                <?php else: ?>
+
+                                    <a href="/login.php"
+                                       class="btn btn-outline-danger w-100 mt-2">
+                                        ♡ Login to Save
+                                    </a>
+
+                                <?php endif; ?>
+
                                 <a href="/property_details.php?id=<?= (int)$property['property_id'] ?>"
                                    class="btn btn-outline-primary w-100 mt-2">
                                     View Details
@@ -185,5 +239,68 @@ require_once __DIR__ . '/../backend/includes/header.php';
 
     </div>
 </section>
+
+<?php if ($isLoggedIn): ?>
+
+<script>
+document.querySelectorAll('.favorite-btn').forEach(button => {
+
+    button.addEventListener('click', async function () {
+
+        const propertyId = this.dataset.propertyId;
+        const isFavorite = this.dataset.favorite === '1';
+
+        const formData = new FormData();
+
+        formData.append('action', isFavorite ? 'remove' : 'add');
+        formData.append('property_id', propertyId);
+        formData.append(
+            'csrf_token',
+            <?= json_encode($_SESSION['csrf_token']) ?>
+        );
+
+        this.disabled = true;
+
+        try {
+
+            const response = await fetch('/favorite_process.php', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (!response.ok || !result.success) {
+                alert(result.message || 'Favorite operation failed.');
+                return;
+            }
+
+            const newFavorite = !isFavorite;
+
+            this.dataset.favorite = newFavorite ? '1' : '0';
+
+            this.classList.toggle('btn-danger', newFavorite);
+            this.classList.toggle('btn-outline-danger', !newFavorite);
+
+            this.textContent = newFavorite
+                ? '♥ Remove Favorite'
+                : '♡ Add to Favorites';
+
+        } catch (error) {
+
+            alert('Unable to update favorites. Please try again.');
+
+        } finally {
+
+            this.disabled = false;
+
+        }
+
+    });
+
+});
+</script>
+
+<?php endif; ?>
 
 <?php require_once __DIR__ . '/../backend/includes/footer.php'; ?>
